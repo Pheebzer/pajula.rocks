@@ -13,7 +13,12 @@ type Config struct {
 		PlaylistEndpoint string `yaml:"playlistEndpoint"`
 		PlaylistId       string `yaml:"playlistId"`
 		ApiKey           string `yaml:"apiKey"`
-	}
+	} `yaml:"spotify"`
+	Db struct {
+		User     string `yaml:"user"`
+		Password string `yaml:"password"`
+		Database string `yaml:"database"`
+	} `yaml:"db"`
 }
 
 func parseConfig(filepath string) *Config {
