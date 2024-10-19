@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+type TokenData struct {
+	AccessToken string `json:"access_token"`
+}
+type MetaData struct {
+	SnapshotId string `json:"snapshot_id"`
+	TrackCount int    `json:"total"`
+}
 type PageData struct {
 	Items []struct {
 		Track struct {
@@ -28,8 +35,7 @@ type PageData struct {
 	Next string `json:"next"`
 }
 
-func fetchAccessToken(c *http.Client, url, key string) string {
-
+func fetchAccessToken(c *http.Client, url, key string) TokenData {
 	req, err := http.NewRequest(
 		"POST",
 		url,
@@ -47,17 +53,15 @@ func fetchAccessToken(c *http.Client, url, key string) string {
 	}
 	defer res.Body.Close()
 
-	j := struct {
-		AccessToken string `json:"access_token"`
-	}{}
+	var j TokenData
 	json.NewDecoder(res.Body).Decode(&j)
 	if err != nil {
 		panic(err)
 	}
-	return j.AccessToken
+	return j
 }
 
-func fetchSnapshotId(c *http.Client, url, token string) string {
+func fetchMetadata(c *http.Client, url, token string) (snapshotId string, songCount int) {
 	req, err := http.NewRequest(
 		"GET",
 		url,
@@ -71,14 +75,12 @@ func fetchSnapshotId(c *http.Client, url, token string) string {
 	if err != nil {
 		panic(err)
 	}
-	j := struct {
-		SnapshotId string `json:"snapshot_id"`
-	}{}
+	var j MetaData
 	json.NewDecoder(res.Body).Decode(&j)
 	if err != nil {
 		panic(err)
 	}
-	return j.SnapshotId
+	return j.SnapshotId, j.TrackCount
 }
 
 func fetchPageData(c *http.Client, url, token string) *PageData {

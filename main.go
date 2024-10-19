@@ -48,10 +48,10 @@ func main() {
 	defer db.Close()
 
 	c := &http.Client{}
-	token := fetchAccessToken(c, cfg.Spotify.TokenEndpoint, cfg.Spotify.ApiKey)
+	token := fetchAccessToken(c, cfg.Spotify.TokenEndpoint, cfg.Spotify.ApiKey).AccessToken
 	filterStr := "fields=next,items(added_by.id,added_at,track(name,id,duration_ms,album(name),artists(name))"
 	pageBaseUrl := fmt.Sprintf("%s/%s/tracks", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
-	snapshotUrl := fmt.Sprintf("%s/%s?fields=snapshot_id", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
+	metadataUrl := fmt.Sprintf("%s/%s?fields=snapshot_id,tracks.total", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
 	nextPage := fmt.Sprintf("%s?%s&limit=100", pageBaseUrl, filterStr)
 
 	itx, err := StartTransaction(db)
@@ -60,7 +60,7 @@ func main() {
 	}
 
 	// check if the playlist has changed, return early if there is nothing to import
-	newSnapshotId := fetchSnapshotId(c, snapshotUrl, token)
+	newSnapshotId, songCount := fetchMetadata(c, metadataUrl, token)
 	var oldSnapshotId string
 	if err := itx.statements.GetSnapshotId.QueryRow().Scan(&oldSnapshotId); err != nil {
 		panic(err)
