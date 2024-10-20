@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -57,19 +58,24 @@ func fetchAccessToken(c *http.Client, url, key string) TokenData {
 	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", key))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	res, err := c.Do(req)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
+		log.Fatal(res.Body)
+	}
 
 	var j TokenData
 	json.NewDecoder(res.Body).Decode(&j)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	return j
 }
@@ -82,16 +88,22 @@ func fetchMetadata(c *http.Client, url, token string) (snapshotId string, songCo
 	)
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	res, err := c.Do(req)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+
+	if res.StatusCode != http.StatusOK {
+		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
+		log.Fatal(res.Body)
+	}
+
 	var j MetaData
 	json.NewDecoder(res.Body).Decode(&j)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	return j.SnapshotId, j.Tracks.TrackCount
 }
@@ -104,17 +116,23 @@ func fetchPageData(c *http.Client, url, token, snid string) []Track {
 	)
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	res, err := c.Do(req)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+
+	if res.StatusCode != http.StatusOK {
+		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
+		log.Fatal(res.Body)
+	}
+
 	d := PageData{}
 	var t []Track
 	json.NewDecoder(res.Body).Decode(&d)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	for _, e := range d.Items {
 		at, _ := time.Parse(time.RFC3339, e.AddedAt)

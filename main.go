@@ -3,113 +3,89 @@ package main //32twOqGf8gIswTgzG3IKxP
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"os"
-	"runtime/pprof"
 	"sync"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func rollBackTx(tx *sql.Tx) {
-	fmt.Println("Attempting to roll back tx")
+	log.Println("Attempting to roll back tx")
 	err := tx.Rollback()
 	if err != nil {
-		fmt.Println(err)
+		log.Fatalf("ERROR: Failed to roll back transaction, check data integrity:\n%s", err)
 	}
-	panic("importer failed")
+	os.Exit(1)
 }
 
 func main() {
-
-	// Create a CPU profile file.
-	f, err := os.Create("beans.prof")
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-
-	// Start CPU profiling.
-	if err := pprof.StartCPUProfile(f); err != nil {
-		panic(err)
-	}
-	defer pprof.StopCPUProfile()
-
-	cfp := os.Getenv("CONFIG_FILE")
-	if cfp == "" {
-		cfp = "config.yaml"
-	}
-	cfg := parseConfig(cfp)
-
+	initLogs()
+	cfg := getConfigs()
 	db, err := InitDB(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatalf("ERROR: Unable to connect to database:\n%s", err)
 	}
 	defer db.Close()
 
 	c := &http.Client{}
-	token := fetchAccessToken(c, cfg.Spotify.TokenEndpoint, cfg.Spotify.ApiKey).AccessToken
+	token := fetchAccessToken(c, cfg.TokenEndpoint, cfg.ApiKey).AccessToken
 	filterStr := "fields=next,items(added_by.id,added_at,track(name,id,duration_ms,album(name),artists(name))"
-	pageBaseUrl := fmt.Sprintf("%s/%s/tracks", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
-	metadataUrl := fmt.Sprintf("%s/%s?fields=snapshot_id,tracks.total", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
+	pageBaseUrl := fmt.Sprintf("%s/%s/tracks", cfg.PlaylistEndpoint, cfg.PlaylistId)
+	metadataUrl := fmt.Sprintf("%s/%s?fields=snapshot_id,tracks.total", cfg.PlaylistEndpoint, cfg.PlaylistId)
 
 	itx, err := StartTransaction(db)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	// check if the playlist has changed, return early if there is nothing to import
 	newSnapshotId, songCount := fetchMetadata(c, metadataUrl, token)
 	var oldSnapshotId string
 	if err := itx.statements.GetSnapshotId.QueryRow().Scan(&oldSnapshotId); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	if newSnapshotId == oldSnapshotId {
-		fmt.Println("Snapshot IDs match, nothing to import")
+		log.Println("INFO: Snapshot IDs match, nothing to import")
+		os.Exit(0)
 		return
 	}
 
-	// fetch data from spotify API concurrently using goroutines
-	// calculate number of requests needed from playlist song count
-	//
 	// API rate limit ~180 requests per second, returns max 100 tracks per request
 	// playlist max song count is 10,000
 	// -> should be possible to always fetch all songs concurrently before rate limit kicks in
-	// @TODO: add backoff, just in case :P
-	fmt.Printf("songCount: %d\n", songCount)
 	reqCount := int(math.Ceil((float64(songCount) / 100)))
-	fmt.Printf("reqCount: %d\n", reqCount)
 	tracksCh := make(chan []Track, reqCount)
 	var wg sync.WaitGroup
+
+	log.Printf("INFO: Fetching %d songs from playlist %s over %d requests",
+		songCount,
+		cfg.PlaylistId,
+		reqCount,
+	)
+
 	for i := 0; i < reqCount; i++ {
 		wg.Add(1)
-		apiUrl := fmt.Sprintf(
-			"%s?%s&limit=100&offset=%d",
-			pageBaseUrl, filterStr, i*100,
-		)
+		apiUrl := fmt.Sprintf("%s?%s&limit=100&offset=%d", pageBaseUrl, filterStr, i*100)
 		go func(apiUrl string) {
-			fmt.Printf("fetching: %s\n", apiUrl)
 			defer wg.Done()
 			tracks := fetchPageData(c, apiUrl, token, newSnapshotId)
-			fmt.Printf("goroutine fetched %d tracks\n", len(tracks))
 			tracksCh <- tracks
 		}(apiUrl)
 	}
+
 	wg.Wait()
-	fmt.Println("All goroutines finished, closing channel")
 	close(tracksCh)
 
 	// update snapshot_id
 	_, err = itx.statements.UpdateSnapshotId.Exec(newSnapshotId)
 	if err != nil {
-		fmt.Println("unable to update snapshot id")
-		panic(err)
+		log.Fatal(err)
 	}
 
 	// Add new tracks, update snapshot_id where applicable
-	// tracksCh has n slices of Tracks
-	// @TODO: implement batching
 	for ts := range tracksCh {
 		for _, t := range ts {
 			_, err := itx.statements.InsertUpdateTrack.Exec(
@@ -123,7 +99,8 @@ func main() {
 				t.SnapshotId,
 			)
 			if err != nil {
-				panic(err)
+				rollBackTx(itx.tx)
+				log.Fatalf("Error updating tracks:\n%s", err)
 			}
 		}
 	}
@@ -131,13 +108,14 @@ func main() {
 	// delete old tracks
 	_, err = itx.statements.DeleteTracks.Exec(oldSnapshotId)
 	if err != nil {
-		fmt.Printf("Failed to delete old tracks: %s \n", err)
 		rollBackTx(itx.tx)
+		fmt.Printf("Failed to delete old tracks: %s \n", err)
 	}
 
 	err = itx.tx.Commit()
 	if err != nil {
+		log.Fatal(err)
 		rollBackTx(itx.tx)
 	}
-	fmt.Println("Done!")
+	log.Println("Done!")
 }

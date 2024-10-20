@@ -2,7 +2,7 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
+	"log"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -20,12 +20,8 @@ type Statements struct {
 	UpdateSnapshotId  *sql.Stmt
 }
 
-func InitDB(cfg *Config) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@/%s",
-		cfg.Db.User,
-		cfg.Db.Password,
-		cfg.Db.Database)
-	db, err := sql.Open("mysql", dsn)
+func InitDB(cfg Config) (*sql.DB, error) {
+	db, err := sql.Open("mysql", cfg.MysqlDsn)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +47,7 @@ func StartTransaction(db *sql.DB) (*ImporterTx, error) {
 func prepareStmt(tx *sql.Tx, query string) *sql.Stmt {
 	stmt, err := tx.Prepare(query)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	return stmt
 }
