@@ -53,23 +53,22 @@ func main() {
 	filterStr := "fields=next,items(added_by.id,added_at,track(name,id,duration_ms,album(name),artists(name))"
 	pageBaseUrl := fmt.Sprintf("%s/%s/tracks", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
 	metadataUrl := fmt.Sprintf("%s/%s?fields=snapshot_id,tracks.total", cfg.Spotify.PlaylistEndpoint, cfg.Spotify.PlaylistId)
-	//nextPage := fmt.Sprintf("%s?%s&limit=100", pageBaseUrl, filterStr)
 
-	// itx, err := StartTransaction(db)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	itx, err := StartTransaction(db)
+	if err != nil {
+		panic(err)
+	}
 
 	// check if the playlist has changed, return early if there is nothing to import
 	newSnapshotId, songCount := fetchMetadata(c, metadataUrl, token)
-	// var oldSnapshotId string
-	// if err := itx.statements.GetSnapshotId.QueryRow().Scan(&oldSnapshotId); err != nil {
-	// 	panic(err)
-	// }
-	// if newSnapshotId == oldSnapshotId {
-	// 	fmt.Println("Snapshot IDs match, nothing to import")
-	// 	return
-	// }
+	var oldSnapshotId string
+	if err := itx.statements.GetSnapshotId.QueryRow().Scan(&oldSnapshotId); err != nil {
+		panic(err)
+	}
+	if newSnapshotId == oldSnapshotId {
+		fmt.Println("Snapshot IDs match, nothing to import")
+		return
+	}
 
 	// fetch data from spotify API concurrently using goroutines
 	// calculate number of requests needed from playlist song count
@@ -100,50 +99,45 @@ func main() {
 	wg.Wait()
 	fmt.Println("All goroutines finished, closing channel")
 	close(tracksCh)
-	fmt.Print(len(tracksCh))
 
-	// // update snapshot_id
-	// _, err = itx.statements.UpdateSnapshotId.Exec(newSnapshotId)
-	// if err != nil {
-	// 	fmt.Println("unable to update snapshot id")
-	// 	panic(err)
-	// }
+	// update snapshot_id
+	_, err = itx.statements.UpdateSnapshotId.Exec(newSnapshotId)
+	if err != nil {
+		fmt.Println("unable to update snapshot id")
+		panic(err)
+	}
 
-	// // Add new tracks, update snapshot_id where applicable
-	// // @TODO: implement batching
-	// for nextPage != "" {
-	// 	pg := fetchPageData(c, nextPage, token)
-	// 	for _, e := range pg.Items {
-	// 		date, _ := time.Parse(time.RFC3339, e.AddedAt)
-	// 		_, err := itx.statements.InsertUpdateTrack.Exec(
-	// 			e.Track.ID,
-	// 			e.Track.Name,
-	// 			e.Track.Album.Name,
-	// 			e.Track.Artists[0].Name,
-	// 			e.AddedBy.ID,
-	// 			date,
-	// 			e.Track.DurationMs,
-	// 			newSnapshotId,
-	// 		)
-	// 		if err != nil {
-	// 			fmt.Printf("Failed to insert new track: %s \n", err)
-	// 			rollBackTx(itx.tx)
-	// 		}
-	// 	}
-	// 	fmt.Print(pg.Next)
-	// 	nextPage = pg.Next
-	// }
+	// Add new tracks, update snapshot_id where applicable
+	// tracksCh has n slices of Tracks
+	// @TODO: implement batching
+	for ts := range tracksCh {
+		for _, t := range ts {
+			_, err := itx.statements.InsertUpdateTrack.Exec(
+				t.Id,
+				t.Name,
+				t.Album,
+				t.Artist,
+				t.AddedBy,
+				t.AddedAt,
+				t.DurationMs,
+				t.SnapshotId,
+			)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 
-	// // delete old tracks
-	// _, err = itx.statements.DeleteTracks.Exec(oldSnapshotId)
-	// if err != nil {
-	// 	fmt.Printf("Failed to delete old tracks: %s \n", err)
-	// 	rollBackTx(itx.tx)
-	// }
+	// delete old tracks
+	_, err = itx.statements.DeleteTracks.Exec(oldSnapshotId)
+	if err != nil {
+		fmt.Printf("Failed to delete old tracks: %s \n", err)
+		rollBackTx(itx.tx)
+	}
 
-	// err = itx.tx.Commit()
-	// if err != nil {
-	// 	rollBackTx(itx.tx)
-	// }
-	// fmt.Println("Done!")
+	err = itx.tx.Commit()
+	if err != nil {
+		rollBackTx(itx.tx)
+	}
+	fmt.Println("Done!")
 }
