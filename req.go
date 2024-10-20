@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type TokenData struct {
 	AccessToken string `json:"access_token"`
 }
 type MetaData struct {
+	Tracks struct {
+		TrackCount int `json:"total"`
+	} `json:"tracks"`
 	SnapshotId string `json:"snapshot_id"`
-	TrackCount int    `json:"total"`
 }
 type PageData struct {
 	Items []struct {
@@ -33,6 +36,16 @@ type PageData struct {
 		AddedAt string `json:"added_at"`
 	} `json:"items"`
 	Next string `json:"next"`
+}
+type Track struct {
+	Id         string
+	Name       string
+	Album      string
+	Artist     string
+	AddedBy    string
+	AddedAt    time.Time
+	DurationMs int
+	SnapshotId string
 }
 
 func fetchAccessToken(c *http.Client, url, key string) TokenData {
@@ -80,11 +93,10 @@ func fetchMetadata(c *http.Client, url, token string) (snapshotId string, songCo
 	if err != nil {
 		panic(err)
 	}
-	return j.SnapshotId, j.TrackCount
+	return j.SnapshotId, j.Tracks.TrackCount
 }
 
-func fetchPageData(c *http.Client, url, token string) *PageData {
-
+func fetchPageData(c *http.Client, url, token, snid string) []Track {
 	req, err := http.NewRequest(
 		"GET",
 		url,
@@ -99,9 +111,23 @@ func fetchPageData(c *http.Client, url, token string) *PageData {
 		panic(err)
 	}
 	d := PageData{}
+	var t []Track
 	json.NewDecoder(res.Body).Decode(&d)
 	if err != nil {
 		panic(err)
 	}
-	return &d
+	for _, e := range d.Items {
+		at, _ := time.Parse(time.RFC3339, e.AddedAt)
+		t = append(t, Track{
+			Id:         e.Track.ID,
+			Name:       e.Track.Name,
+			Album:      e.Track.Album.Name,
+			Artist:     e.Track.Artists[0].Name,
+			AddedBy:    e.AddedBy.ID,
+			AddedAt:    at,
+			DurationMs: e.Track.DurationMs,
+			SnapshotId: snid,
+		})
+	}
+	return t
 }
