@@ -1,4 +1,4 @@
-package main
+package importer
 
 import (
 	"encoding/json"
@@ -49,7 +49,7 @@ type Track struct {
 	SnapshotId string
 }
 
-func fetchAccessToken(c *http.Client, url, key string) TokenData {
+func FetchAccessToken(c *http.Client, url, key string) TokenData {
 	req, err := http.NewRequest(
 		"POST",
 		url,
@@ -69,7 +69,6 @@ func fetchAccessToken(c *http.Client, url, key string) TokenData {
 
 	if res.StatusCode != http.StatusOK {
 		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
-		log.Fatal(res.Body)
 	}
 
 	var j TokenData
@@ -77,10 +76,11 @@ func fetchAccessToken(c *http.Client, url, key string) TokenData {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	return j
 }
 
-func fetchMetadata(c *http.Client, url, token string) (snapshotId string, songCount int) {
+func FetchMetadata(c *http.Client, url, token string) (snapshotId string, songCount int) {
 	req, err := http.NewRequest(
 		"GET",
 		url,
@@ -97,7 +97,6 @@ func fetchMetadata(c *http.Client, url, token string) (snapshotId string, songCo
 
 	if res.StatusCode != http.StatusOK {
 		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
-		log.Fatal(res.Body)
 	}
 
 	var j MetaData
@@ -105,10 +104,11 @@ func fetchMetadata(c *http.Client, url, token string) (snapshotId string, songCo
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	return j.SnapshotId, j.Tracks.TrackCount
 }
 
-func fetchPageData(c *http.Client, url, token, snid string) []Track {
+func FetchPageData(c *http.Client, url, token, snid string) []Track {
 	req, err := http.NewRequest(
 		"GET",
 		url,
@@ -125,7 +125,6 @@ func fetchPageData(c *http.Client, url, token, snid string) []Track {
 
 	if res.StatusCode != http.StatusOK {
 		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
-		log.Fatal(res.Body)
 	}
 
 	d := PageData{}
@@ -147,5 +146,6 @@ func fetchPageData(c *http.Client, url, token, snid string) []Track {
 			SnapshotId: snid,
 		})
 	}
+
 	return t
 }

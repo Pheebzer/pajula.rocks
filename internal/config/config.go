@@ -1,10 +1,12 @@
-package main
+package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 
 	"gopkg.in/yaml.v2"
+	"pajula.rocks/internal/utils"
 )
 
 type Config struct {
@@ -16,24 +18,31 @@ type Config struct {
 	MysqlDsn         string `yaml:"mysqlDsn"`
 }
 
+func GetConfigs() Config {
+	var cfg Config
+	fp := os.Getenv("CONFIG_FILE")
+	if fp == "" {
+		fp = fmt.Sprintf("%s/config.yaml", utils.ProjectRoot)
+		log.Println("INFO: Environment variable 'CONFIG_FILE' not set")
+		log.Printf("INFO: using default file: %s", fp)
+	}
+	f, err := os.Open(fp)
+	if err != nil {
+		log.Println("WARN: Unable to load config file or not found, using env variables only")
+	}
+	defer f.Close()
+	parseConfig(f, &cfg)
+	return cfg
+}
+
 func parseConfig(f *os.File, cfg *Config) {
 	decoder := yaml.NewDecoder(f)
 	err := decoder.Decode(cfg)
 	if err != nil {
-		log.Fatalf("ERROR: Cannot parse configuration: \n%s", err)
+		log.Fatalf("ERROR: Cannot parse configuration:\n%s", err)
 	}
 	// env variables override if they exist
 	parseEnv(cfg)
-}
-
-func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	} else if fallback != "" {
-		return fallback
-	}
-	log.Fatalf("ERROR: Missing config value '%s' - check config type for missing value", key)
-	return "" // dummy return
 }
 
 func parseEnv(cfg *Config) {
@@ -45,23 +54,12 @@ func parseEnv(cfg *Config) {
 	cfg.MysqlDsn = getEnv("MYSQL_DSN", cfg.MysqlDsn)
 }
 
-func getConfigs() Config {
-	var cfg Config
-	fp := os.Getenv("CONFIG_FILE")
-	if fp == "" {
-		log.Println("INFO: Environment variable 'CONFIG_FILE' not set, using default file")
-		fp = "config.yaml"
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	} else if fallback != "" {
+		return fallback
 	}
-	f, err := os.Open(fp)
-	if err != nil {
-		log.Println("WARN: Unable to load config file or not found, using env variables only")
-	}
-	defer f.Close()
-	parseConfig(f, &cfg)
-	return cfg
-}
-
-func initLogs() {
-	log.SetOutput(os.Stdout)
-	log.SetFlags(log.Ldate | log.Ltime)
+	log.Fatalf("ERROR: Missing config value '%s'", key)
+	return "" // dummy return
 }

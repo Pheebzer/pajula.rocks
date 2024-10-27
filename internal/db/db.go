@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"database/sql"
@@ -10,7 +10,7 @@ import (
 
 type ImporterTx struct {
 	tx         *sql.Tx
-	statements Statements
+	Statements Statements
 }
 
 type Statements struct {
@@ -20,8 +20,8 @@ type Statements struct {
 	UpdateSnapshotId  *sql.Stmt
 }
 
-func InitDB(cfg Config) (*sql.DB, error) {
-	db, err := sql.Open("mysql", cfg.MysqlDsn)
+func InitDB(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -40,16 +40,8 @@ func StartTransaction(db *sql.DB) (*ImporterTx, error) {
 	statements := getStatements(tx)
 	return &ImporterTx{
 		tx:         tx,
-		statements: statements,
+		Statements: statements,
 	}, nil
-}
-
-func prepareStmt(tx *sql.Tx, query string) *sql.Stmt {
-	stmt, err := tx.Prepare(query)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return stmt
 }
 
 func getStatements(tx *sql.Tx) Statements {
@@ -65,4 +57,30 @@ func getStatements(tx *sql.Tx) Statements {
 		UpdateSnapshotId: prepareStmt(tx, `
 			UPDATE metadata SET snapshot_id = ?;`),
 	}
+}
+
+func prepareStmt(tx *sql.Tx, query string) *sql.Stmt {
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return stmt
+}
+
+func RollBackTx(itx *ImporterTx) error {
+	log.Println("INFO - Attempting to roll back tx")
+	err := itx.tx.Rollback()
+	if err != nil {
+		return err
+	}
+	log.Println("INFO - Transaction rolled back succesfully")
+	return nil
+}
+
+func Commit(itx *ImporterTx) error {
+	err := itx.tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
 }
