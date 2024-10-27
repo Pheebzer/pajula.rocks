@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -22,6 +23,7 @@ func rollBackTx(tx *sql.Tx) {
 }
 
 func main() {
+	tstart := time.Now()
 	initLogs()
 	cfg := getConfigs()
 	db, err := InitDB(cfg)
@@ -60,11 +62,7 @@ func main() {
 	tracksCh := make(chan []Track, reqCount)
 	var wg sync.WaitGroup
 
-	log.Printf("INFO: Fetching %d songs from playlist %s over %d requests",
-		songCount,
-		cfg.PlaylistId,
-		reqCount,
-	)
+	log.Printf("INFO: Fetching songs for playlist %s", cfg.PlaylistId)
 
 	for i := 0; i < reqCount; i++ {
 		wg.Add(1)
@@ -117,5 +115,6 @@ func main() {
 		log.Fatal(err)
 		rollBackTx(itx.tx)
 	}
-	log.Println("Done!")
+	telapsed := time.Since(tstart)
+	log.Printf("INFO: Done is %s", telapsed)
 }
