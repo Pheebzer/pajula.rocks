@@ -7,7 +7,13 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	logger "pajula.rocks/internal/log"
 )
+
+var httpc = &http.Client{
+	Timeout: 10 * time.Second,
+}
 
 type TokenData struct {
 	AccessToken string `json:"access_token"`
@@ -16,7 +22,9 @@ type MetaData struct {
 	Tracks struct {
 		TrackCount int `json:"total"`
 	} `json:"tracks"`
-	SnapshotId string `json:"snapshot_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SnapshotId  string `json:"snapshot_id"`
 }
 type PageData struct {
 	Items []struct {
@@ -49,27 +57,28 @@ type Track struct {
 	SnapshotId string
 }
 
-func FetchAccessToken(c *http.Client, url, key string) TokenData {
+func doRequest(req *http.Request) *http.Response {
+	res, err := httpc.Do(req)
+	if err != nil || res.StatusCode != http.StatusOK {
+		logger.Fatalf("Invalid API response %d for request %s", res.StatusCode, req.URL)
+	}
+	return res
+}
+
+func FetchAccessToken(url, key string) TokenData {
 	req, err := http.NewRequest(
 		"POST",
 		url,
 		strings.NewReader("grant_type=client_credentials"),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", key))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	res, err := c.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
+	res := doRequest(req)
 	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
-	}
 
 	var j TokenData
 	json.NewDecoder(res.Body).Decode(&j)
@@ -80,7 +89,7 @@ func FetchAccessToken(c *http.Client, url, key string) TokenData {
 	return j
 }
 
-func FetchMetadata(c *http.Client, url, token string) (snapshotId string, songCount int) {
+func FetchMetadata(url, token string) MetaData {
 	req, err := http.NewRequest(
 		"GET",
 		url,
@@ -90,25 +99,20 @@ func FetchMetadata(c *http.Client, url, token string) (snapshotId string, songCo
 	if err != nil {
 		log.Fatal(err)
 	}
-	res, err := c.Do(req)
+
+	res := doRequest(req)
+	defer res.Body.Close()
+
+	var m MetaData
+	json.NewDecoder(res.Body).Decode(&m)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if res.StatusCode != http.StatusOK {
-		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
-	}
-
-	var j MetaData
-	json.NewDecoder(res.Body).Decode(&j)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return j.SnapshotId, j.Tracks.TrackCount
+	return m
 }
 
-func FetchPageData(c *http.Client, url, token, snid string) []Track {
+func FetchPageData(url, token, snid string) []Track {
 	req, err := http.NewRequest(
 		"GET",
 		url,
@@ -118,14 +122,9 @@ func FetchPageData(c *http.Client, url, token, snid string) []Track {
 	if err != nil {
 		log.Fatal(err)
 	}
-	res, err := c.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	if res.StatusCode != http.StatusOK {
-		log.Printf("Invalid API response %d for request %s", res.StatusCode, url)
-	}
+	res := doRequest(req)
+	defer res.Body.Close()
 
 	d := PageData{}
 	var t []Track

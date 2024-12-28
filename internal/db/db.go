@@ -2,8 +2,9 @@ package db
 
 import (
 	"database/sql"
-	"log"
 	"time"
+
+	logger "pajula.rocks/internal/log"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -18,6 +19,8 @@ type Statements struct {
 	DeleteTracks      *sql.Stmt
 	GetSnapshotId     *sql.Stmt
 	UpdateSnapshotId  *sql.Stmt
+	GetUsers          *sql.Stmt
+	GetAllTracks      *sql.Stmt
 }
 
 func InitDB(dsn string) (*sql.DB, error) {
@@ -32,19 +35,7 @@ func InitDB(dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-func StartTransaction(db *sql.DB) (*ImporterTx, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	statements := getStatements(tx)
-	return &ImporterTx{
-		tx:         tx,
-		Statements: statements,
-	}, nil
-}
-
-func getStatements(tx *sql.Tx) Statements {
+func getTx(tx *sql.Tx) Statements {
 	return Statements{
 		InsertUpdateTrack: prepareStmt(tx, `
 			INSERT INTO tracks (id,name,album,artist,user,added_at,duration_ms,snapshot_id)
@@ -56,24 +47,40 @@ func getStatements(tx *sql.Tx) Statements {
 			SELECT snapshot_id FROM metadata;`),
 		UpdateSnapshotId: prepareStmt(tx, `
 			UPDATE metadata SET snapshot_id = ?;`),
+		GetUsers: prepareStmt(tx, `
+		  SELECT DISTINCT user FROM tracks;`),
+		GetAllTracks: prepareStmt(tx, `
+		SELECT * FROM tracks;`),
 	}
 }
 
 func prepareStmt(tx *sql.Tx, query string) *sql.Stmt {
 	stmt, err := tx.Prepare(query)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 	return stmt
 }
 
+func StartTx(db *sql.DB) (*ImporterTx, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	statements := getTx(tx)
+	return &ImporterTx{
+		tx:         tx,
+		Statements: statements,
+	}, nil
+}
+
 func RollBackTx(itx *ImporterTx) error {
-	log.Println("INFO - Attempting to roll back tx")
+	logger.Info("Attempting to roll back tx")
 	err := itx.tx.Rollback()
 	if err != nil {
 		return err
 	}
-	log.Println("INFO - Transaction rolled back succesfully")
+	logger.Info("Transaction rolled back succesfully")
 	return nil
 }
 
