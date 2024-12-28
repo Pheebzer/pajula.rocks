@@ -37,9 +37,8 @@ func main() {
 	// check if the playlist has changed, return early if there is nothing to import
 	md := imp.FetchMetadata(metadataUrl, token)
 	var oldSnapshotId string
-	if err := itx.Statements.GetSnapshotId.QueryRow().Scan(&oldSnapshotId); err != nil {
-		logger.Fatal(err)
-	}
+	// nil implies row is not populated, which is possible -> continue with importer
+	_ = itx.Statements.GetSnapshotId.QueryRow().Scan(&oldSnapshotId)
 	if md.SnapshotId == oldSnapshotId {
 		logger.Info("Snapshot IDs match, nothing to import")
 		os.Exit(0)

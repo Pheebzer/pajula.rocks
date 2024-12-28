@@ -46,7 +46,7 @@ func getTx(tx *sql.Tx) Statements {
 		GetSnapshotId: prepareStmt(tx, `
 			SELECT snapshot_id FROM metadata;`),
 		UpdateSnapshotId: prepareStmt(tx, `
-			UPDATE metadata SET snapshot_id = ?;`),
+			REPLACE INTO metadata (snapshot_id) VALUES (?);`),
 		GetUsers: prepareStmt(tx, `
 		  SELECT DISTINCT user FROM tracks;`),
 		GetAllTracks: prepareStmt(tx, `
